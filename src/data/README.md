@@ -35,3 +35,32 @@ The `DataManager` is designed to support the following workflow sequence to ensu
 2. **Partitioning**: Separate the final "Test" set from the "Training" and "Validation" data using `get_splits` to prevent info leakage.
 3. **Balancing**: Apply balancing strategies via `balance_data` **only** to the training subset.
 4. **Final Scaling**: Standardize or normalize all subsets consistently using `preprocess`.
+
+---
+
+### Usage Skeleton
+The following code demonstrates a standardized pipeline execution using the `DataManager` for binary classification tasks:
+
+```python
+from src.data import DataManager
+
+# 1. Initialize with raw features (X) and binary labels (y)
+manager = DataManager(features, labels)
+
+# 2. Partition the data (3-way stratified split)
+X_train, X_val, X_test, y_train, y_val, y_test = manager.get_splits(test_size=0.15, val_size=0.15)
+
+# 3. Handle class imbalance (Applied ONLY to the training subset)
+# This prevents "leaking" balanced class ratios into your evaluation sets.
+X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
+
+# 4. Preprocess / Scale all subsets consistently
+# Use the same 'method' (e.g., "standard") for all subsets
+X_train_final = manager.preprocess(X_train_bal, method="standard")
+X_val_final = manager.preprocess(X_val, method="standard")
+X_test_final = manager.preprocess(X_test, method="standard")
+```
+
+### Required Dependencies
+*   `numpy`: Primitive data structure management.
+*   `scikit-learn`: Core logic for data partitioning, feature scaling, and resampling.

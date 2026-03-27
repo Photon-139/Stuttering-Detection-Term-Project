@@ -30,3 +30,28 @@ To implement a new feature extractor:
 1. Create a new class that inherits from `BaseExtractor`.
 2. Implement the `load_model` method to initialize the specific underlying model.
 3. Implement the `extract_one` method to handle audio loading and transformation, ensuring the final return value is a standard NumPy array.
+
+---
+
+### Implementation Skeleton
+To incorporate a new speech processing library, create a new child class following this standardized pattern:
+
+```python
+from src.extractors import BaseExtractor
+
+class NewSpeechExtractor(BaseExtractor):
+    def load_model(self):
+        # [Logic to initialize the specific library or model weights]
+        # Must return an object/dict accessible via self.model_data
+        pass
+
+    def extract_one(self, audio_path):
+        # [Logic to load audio and transform into features]
+        # Constraint: Final return value MUST be a 1D NumPy array
+        pass
+```
+
+### Required Dependencies
+*   `torch`: Utilized for device detection and underlying tensor management.
+*   `numpy`: The required return format for all utterance-level embeddings.
+*   `tqdm`: Progress tracking for large-scale batch extraction.

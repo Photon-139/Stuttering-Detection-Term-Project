@@ -1,3 +1,4 @@
+import os
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, Normalizer
@@ -47,6 +48,11 @@ class DataManager:
         X_fluent = X_train[y_train == 0]
         X_disfluent = X_train[y_train == 1]
         
+        # Safety Check: If one class is missing, we cannot balance.
+        if len(X_fluent) == 0 or len(X_disfluent) == 0:
+            print(f"[{self.__class__.__name__}] Warning: Training subset only contains one class. Skipping balance.")
+            return X_train, y_train
+
         if strategy == "oversample":
             # Duplicate minority class
             dis_upsampled = resample(X_disfluent, replace=True, 
@@ -83,3 +89,29 @@ class DataManager:
         )
         
         return X_train, X_val, X_test, y_train, y_val, y_test
+
+    def load_labels_from_csv(self, csv_path, audio_paths):
+        """
+        Fulfills Step 2 'Data Preparation'. Correlates filenames with CSV rows.
+        Default Rule: If NoStutter < 2, it counts as a Stuttering Event (1).
+        """
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        
+        # Binary Rule: 0 = Fluent, 1 = Stutter
+        # 'NoStutteredWords' is the count of annotators who didn't hear a stutter.
+        # If < 2 (out of 3), it means at least 2 people heard a stutter.
+        df['target'] = (df['NoStutteredWords'] < 2).astype(int)
+        
+        # Create a lookup key like "Show_EpId_ClipId"
+        df['key'] = df['Show'].astype(str) + '_' + df['EpId'].astype(str) + '_' + df['ClipId'].astype(str)
+        lookup = df.set_index('key')['target'].to_dict()
+        
+        y = []
+        for path in audio_paths:
+            filename = os.path.splitext(os.path.basename(path))[0]
+            # Match the filename to its label in the CSV
+            label = lookup.get(filename, 0)
+            y.append(label)
+            
+        return np.array(y)
