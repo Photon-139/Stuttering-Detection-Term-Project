@@ -1,1 +1,5 @@
 *.zip
+Stuttering Events in Podcasts Dataset/
+*.npy
+*.csv
+.session_handoff.md
