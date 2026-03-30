@@ -10,6 +10,10 @@ from src.extractors import WavLMExtractor
 from src.data import DataManager
 
 def run_test(audio_dir, csv_path, model_id, sample_dir):
+    # --- CONFIGURATION VARIABLE ---
+    NUM_SAMPLES = 50 
+    # ------------------------------
+
     # 0. Path Validation
     abs_audio_dir = os.path.abspath(audio_dir)
     abs_csv_path = os.path.abspath(csv_path)
@@ -27,17 +31,17 @@ def run_test(audio_dir, csv_path, model_id, sample_dir):
 
     print("\n--- [STARTING REAL-WORLD PIPELINE & STORAGE TEST] ---")
 
-    # Step 1: EXTRACT (50 files)
-    print(f"\n[1/6] Extracting 50 real samples from {abs_audio_dir}...")
+    # Step 1: EXTRACT
+    print(f"\n[1/6] Extracting {NUM_SAMPLES} real samples from {abs_audio_dir}...")
     extractor = WavLMExtractor(model_id)
     features = extractor.extract_from_dir(
-        abs_audio_dir, limit=50, save_path=os.path.join(sample_dir, "raw_features.npy")
+        abs_audio_dir, limit=NUM_SAMPLES, save_path=os.path.join(sample_dir, "raw_features.npy")
     )
     
     # We need the paths to find the labels in the CSV
     audio_paths = [os.path.join(abs_audio_dir, f) for f in os.listdir(abs_audio_dir) if f.lower().endswith('.wav')]
     audio_paths.sort()
-    audio_paths = audio_paths[:50]
+    audio_paths = audio_paths[:NUM_SAMPLES]
 
     # Step 2: LOAD REAL LABELS FROM CSV
     print(f"\n[2/6] Correlating features with labels from {abs_csv_path}...")
