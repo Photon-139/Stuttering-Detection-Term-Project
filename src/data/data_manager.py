@@ -90,28 +90,55 @@ class DataManager:
         
         return X_train, X_val, X_test, y_train, y_val, y_test
 
-    def load_labels_from_csv(self, csv_path, audio_paths):
+    def load_from_folders(self, fluent_dir, disfluent_dir):
         """
-        Fulfills Step 2 'Data Preparation'. Correlates filenames with CSV rows.
-        Default Rule: If NoStutter < 2, it counts as a Stuttering Event (1).
+        Loads individual .npy files from class-specific folders.
+        This fulfills the TA's 'Distributed Data' requirement.
+        """
+        X_fluent = []
+        for f in os.listdir(fluent_dir):
+            if f.endswith('.npy'):
+                X_fluent.append(np.load(os.path.join(fluent_dir, f)))
+        
+        X_disfluent = []
+        for f in os.listdir(disfluent_dir):
+            if f.endswith('.npy'):
+                X_disfluent.append(np.load(os.path.join(disfluent_dir, f)))
+        
+        X = np.vstack(X_fluent + X_disfluent)
+        y = np.hstack((np.zeros(len(X_fluent)), np.ones(len(X_disfluent))))
+        
+        self.X, self.y = X, y
+        return X, y
+
+    @staticmethod
+    def generate_label_dict(csv_paths, filter_quality=True):
+        """
+        Creates a 'Master Lookup Table' from multiple CSVs.
+        Automatically filters out poor audio, music, and non-speech clips.
         """
         import pandas as pd
-        df = pd.read_csv(csv_path)
+        master_df = pd.concat([pd.read_csv(p) for p in csv_paths])
         
-        # Binary Rule: 0 = Fluent, 1 = Stutter
-        # 'NoStutteredWords' is the count of annotators who didn't hear a stutter.
-        # If < 2 (out of 3), it means at least 2 people heard a stutter.
-        df['target'] = (df['NoStutteredWords'] < 2).astype(int)
+        # 1. Quality Filtering (Eliminate Garbage)
+        if filter_quality:
+            # Drop rows where annotators heard strictly Music or NoSpeech
+            # Or where quality was marked as poor
+            initial_count = len(master_df)
+            master_df = master_df[
+                (master_df['Music'] < 1) & 
+                (master_df['NoSpeech'] < 1) & 
+                (master_df['PoorAudioQuality'] < 1)
+            ]
+            print(f"[DataManager] Quality Filter: Removed {initial_count - len(master_df)} low-quality samples.")
         
-        # Create a lookup key like "Show_EpId_ClipId"
-        df['key'] = df['Show'].astype(str) + '_' + df['EpId'].astype(str) + '_' + df['ClipId'].astype(str)
-        lookup = df.set_index('key')['target'].to_dict()
+        # 2. Binary Target Generation
+        # Standard Research Rule: (NoStutteredWords < 2) => Stutter(1)
+        master_df['target'] = (master_df['NoStutteredWords'] < 2).astype(int)
         
-        y = []
-        for path in audio_paths:
-            filename = os.path.splitext(os.path.basename(path))[0]
-            # Match the filename to its label in the CSV
-            label = lookup.get(filename, 0)
-            y.append(label)
-            
-        return np.array(y)
+        # 3. Create Search Key
+        master_df['key'] = master_df['Show'].astype(str) + '_' + \
+                          master_df['EpId'].astype(str) + '_' + \
+                          master_df['ClipId'].astype(str)
+                          
+        return master_df.set_index('key')['target'].to_dict()

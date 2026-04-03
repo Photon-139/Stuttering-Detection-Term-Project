@@ -1,5 +1,15 @@
 *.zip
-Stuttering Events in Podcasts Dataset/
+"Stuttering Events in Podcasts Dataset/"
 *.npy
 *.csv
 .session_handoff.md
+*.log
+__pycache__/
+*.py[cod]
+*.so
+.ipynb_checkpoints/
+/data/
+/sample_data/
+/venv/
+.env
+*.wav

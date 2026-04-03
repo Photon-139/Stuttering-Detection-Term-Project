@@ -2,6 +2,8 @@ import numpy as np
 import os
 import sys
 import argparse
+import shutil
+import random
 
 # Ensure we can import from src/
 sys.path.append(os.getcwd())
@@ -9,95 +11,92 @@ sys.path.append(os.getcwd())
 from src.extractors import WavLMExtractor
 from src.data import DataManager
 
-def run_test(audio_dir, csv_path, model_id, sample_dir):
+def run_test(audio_dir, sep_csv, fb_csv, sample_dir):
     # --- CONFIGURATION VARIABLE ---
-    NUM_SAMPLES = 50 
+    NUM_SAMPLES = 500 
     # ------------------------------
 
     # 0. Path Validation
     abs_audio_dir = os.path.abspath(audio_dir)
-    abs_csv_path = os.path.abspath(csv_path)
+    abs_sep_csv = os.path.abspath(sep_csv)
+    abs_fb_csv = os.path.abspath(fb_csv)
     
-    if not os.path.exists(abs_audio_dir):
-        print(f"\n[CRITICAL ERROR]: Could not find the audio directory at '{abs_audio_dir}'")
-        sys.exit(1)
-        
-    if not os.path.exists(abs_csv_path):
-        print(f"\n[CRITICAL ERROR]: Could not find the CSV labels at '{abs_csv_path}'")
-        sys.exit(1)
+    for p in [abs_audio_dir, abs_sep_csv, abs_fb_csv]:
+        if not os.path.exists(p):
+            print(f"\n[CRITICAL ERROR]: Could not find path: {p}")
+            sys.exit(1)
 
-    # Ensure sample folder exists
-    os.makedirs(sample_dir, exist_ok=True)
+    # Prepare specific feature directories
+    feat_dir = os.path.join(sample_dir, "features")
+    if os.path.exists(feat_dir):
+        shutil.rmtree(feat_dir) # Start fresh for test
+    os.makedirs(feat_dir, exist_ok=True)
 
-    print("\n--- [STARTING REAL-WORLD PIPELINE & STORAGE TEST] ---")
+    print("\n--- [STARTING DISTRIBUTED PIPELINE TEST (500 SAMPLES)] ---")
 
-    # Step 1: EXTRACT
-    print(f"\n[1/6] Extracting {NUM_SAMPLES} real samples from {abs_audio_dir}...")
-    extractor = WavLMExtractor(model_id)
-    features = extractor.extract_from_dir(
-        abs_audio_dir, limit=NUM_SAMPLES, save_path=os.path.join(sample_dir, "raw_features.npy")
+    # Step 1: GENERATE MASTER LABEL DICT (One-time load)
+    print(f"\n[1/5] Building Master Label Switchboard from CSVs...")
+    label_dict = DataManager.generate_label_dict([abs_sep_csv, abs_fb_csv], filter_quality=True)
+    print(f"Master Dictionary loaded with {len(label_dict)} items.")
+
+    # Get and Shuffle files to ensure we see stutters!
+    random.seed(42) # Reproducible
+    all_files = [f for f in os.listdir(abs_audio_dir) if f.lower().endswith('.wav')]
+    random.shuffle(all_files)
+    test_files = [os.path.join(abs_audio_dir, f) for f in all_files[:NUM_SAMPLES]]
+
+    # Step 2: INDIVIDUAL EXTRACTION & SORTING
+    print(f"\n[2/5] Extracting {NUM_SAMPLES} samples into individual files...")
+    extractor = WavLMExtractor("microsoft/wavlm-base")
+    # Using extract_batch directly since we already found the files
+    extractor.extract_batch(
+        test_files, 
+        output_dir=feat_dir, 
+        label_dict=label_dict, 
+        log_path=os.path.join(sample_dir, "failed_files.log")
     )
-    
-    # We need the paths to find the labels in the CSV
-    audio_paths = [os.path.join(abs_audio_dir, f) for f in os.listdir(abs_audio_dir) if f.lower().endswith('.wav')]
-    audio_paths.sort()
-    audio_paths = audio_paths[:NUM_SAMPLES]
 
-    # Step 2: LOAD REAL LABELS FROM CSV
-    print(f"\n[2/6] Correlating features with labels from {abs_csv_path}...")
-    manager = DataManager(features, None) # Initialize without labels first
-    labels = manager.load_labels_from_csv(abs_csv_path, audio_paths)
+    # Step 3: DISTRIBUTED LOADING
+    print(f"\n[3/5] Loading from sorted folders using DataManager...")
+    manager = DataManager(None, None)
+    fluent_dir = os.path.join(feat_dir, "fluent")
+    disfluent_dir = os.path.join(feat_dir, "disfluent")
     
-    # Update manager with real labels
-    manager.y = labels
+    X, y = manager.load_from_folders(fluent_dir, disfluent_dir)
+    print(f"Loaded {len(X)} features back into memory.")
     manager.analyze_distribution()
 
-    # Step 3: SPLIT (Train/Val/Test)
-    print("\n[3/5] Performing 3-Way Stratified Split...")
+    # Step 4: PROCESS (Split & Scaling)
+    # Note: With 200 samples, 3-way split should be stable
+    print(f"\n[4/5] Normalizing and Splitting...")
     X_train, X_val, X_test, y_train, y_val, y_test = manager.get_splits(test_size=0.15, val_size=0.15)
-    print(f"Split results -> Train: {len(X_train)}, Val: {len(X_val)}, Test: {len(X_test)}")
+    X_train_scaled = manager.preprocess(X_train, method="standard")
 
-    # Step 4: BALANCE & SCALE
-    print("\n[4/5] Applying Balancing (Oversampling) and Scaling (StandardScaler)...")
-    X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
-    X_train_final = manager.preprocess(X_train_bal, method="standard")
-    print(f"Final training samples after balancing: {len(X_train_bal)}")
+    # Step 5: VERIFICATION
+    print(f"\n--- [FINAL DISTRIBUTED VERIFICATION] ---")
+    fluent_files = len(os.listdir(fluent_dir))
+    disfluent_files = len(os.listdir(disfluent_dir))
+    
+    print(f"✅ FOLDER [fluent/]: {fluent_files} individual files.")
+    print(f"✅ FOLDER [disfluent/]: {disfluent_files} individual files.")
+    print(f"✅ STATS: Scaled Mean={X_train_scaled.mean():.6f}, Std={X_train_scaled.std():.6f}")
 
-    # Step 5: SAVE PROCESSED NPY
-    print("\n[5/5] Saving processed NumPy arrays to sample_data/...")
-    X_TRAIN_FILE = os.path.join(sample_dir, "X_train_final.npy")
-    np.save(X_TRAIN_FILE, X_train_final)
-
-    # FINAL VERIFICATION
-    print(f"\n--- [FINAL STORAGE & STATS VERIFICATION] ---")
-    raw_npy = os.path.join(sample_dir, "raw_features.npy")
-    if os.path.exists(raw_npy):
-        raw_data = np.load(raw_npy)
-        print(f"[SUCCESS]: [raw_features.npy] exists ({os.path.getsize(raw_npy)} bytes)")
-        print(f"           Mean value: {raw_data.mean():.6f}")
-
-    if os.path.exists(X_TRAIN_FILE):
-        final_data = np.load(X_TRAIN_FILE)
-        print(f"[SUCCESS]: [X_train_final.npy] exists ({os.path.getsize(X_TRAIN_FILE)} bytes)")
-        print(f"           Final Mean (should be near 0.0): {final_data.mean():.6f}")
-        print(f"           Final Std  (should be near 1.0): {final_data.std():.6f}")
-
-    print("\n--- [TEST PIPELINE COMPLETED SUCCESSFULLY] ---\n")
+    print("\n--- [DISTRIBUTED TEST COMPLETED SUCCESSFULLY] ---\n")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="End-to-End Test for Stuttering Detection Pipeline")
+    parser = argparse.ArgumentParser(description="End-to-End Distributed Pipeline Test")
     parser.add_argument("--audio_dir", type=str, 
                         default="Stuttering Events in Podcasts Dataset/clips/stuttering-clips/clips",
-                        help="Relative or absolute path to the audio clips directory")
-    parser.add_argument("--csv_path", type=str, 
+                        help="Path to audio clips")
+    parser.add_argument("--sep_csv", type=str, 
                         default="Stuttering Events in Podcasts Dataset/SEP-28k_labels.csv",
-                        help="Path to the SEP-28k_labels.csv file")
-    parser.add_argument("--model_id", type=str, 
-                        default="microsoft/wavlm-base",
-                        help="HuggingFace Model ID for the feature extractor")
+                        help="Path to SEP-28k labels")
+    parser.add_argument("--fb_csv", type=str, 
+                        default="Stuttering Events in Podcasts Dataset/fluencybank_labels.csv",
+                        help="Path to FluencyBank labels")
     parser.add_argument("--sample_dir", type=str, 
                         default="sample_data",
-                        help="Output directory for generated .npy files")
+                        help="Sample data output root")
     
     args = parser.parse_args()
-    run_test(args.audio_dir, args.csv_path, args.model_id, args.sample_dir)
+    run_test(args.audio_dir, args.sep_csv, args.fb_csv, args.sample_dir)
