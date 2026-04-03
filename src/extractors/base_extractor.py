@@ -42,23 +42,31 @@ class BaseExtractor(ABC):
         """
         X = []
         failed_paths = []
-        print(f"[{self.__class__.__name__}] Processing {len(audio_paths)} samples...")
-        
-        # Prepare directories if saving individually
+        # Building the 'Existing Features' cache (Optimized Pre-Scan)
+        existing_filenames = set()
         if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-            if label_dict:
-                os.makedirs(os.path.join(output_dir, "fluent"), exist_ok=True)
-                os.makedirs(os.path.join(output_dir, "disfluent"), exist_ok=True)
+            for sub in ["fluent", "disfluent"]:
+                sub_path = os.path.join(output_dir, sub)
+                os.makedirs(sub_path, exist_ok=True) # Ensure folders exist
+                if os.path.exists(sub_path):
+                    # Cache filenames without extension for fast O(1) lookup
+                    existing_filenames.update({
+                        os.path.splitext(f)[0] for f in os.listdir(sub_path) 
+                        if f.endswith('.npy')
+                    })
+            print(f"[{self.__class__.__name__}] Found {len(existing_filenames)} pre-existing features. Skipping redundant work.")
 
         for path in tqdm(audio_paths, desc="Batch Extraction"):
+            filename = os.path.splitext(os.path.basename(path))[0]
+            
+            # 0. Optimized Resumable Check: O(1) Memory Lookup
+            if filename in existing_filenames:
+                continue
+            
             emb = self.extract_one(path)
             if emb is not None:
                 # 1. Save individually if output_dir is set
                 if output_dir:
-                    filename = os.path.splitext(os.path.basename(path))[0]
-                    
-                    # Determine subfolder based on label
                     subfolder = ""
                     if label_dict:
                         label = label_dict.get(filename, 0)
@@ -66,6 +74,7 @@ class BaseExtractor(ABC):
                     
                     target_path = os.path.join(output_dir, subfolder, f"{filename}.npy")
                     np.save(target_path, emb)
+                    existing_filenames.add(filename) # Keep cache updated
                 else:
                     X.append(emb) # Keep in memory for smaller batches
             else:

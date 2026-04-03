@@ -36,6 +36,9 @@ class NeuralNetworkModel(BaseModel):
     def __init__(self, model_name="NN_Default", hidden_layers=[64], 
                  lr=0.01, activation_fn=nn.ReLU, optimizer_class=optim.SGD, **kwargs):
         super().__init__(model_name)
+        # Separate training settings from optimizer hyperparameters
+        self.epochs = kwargs.pop('epochs', 200) # Default to 200
+        
         self.input_size = 768 # WavLM Embeddings size
         self.hidden_layers = hidden_layers
         self.lr = lr
@@ -45,18 +48,20 @@ class NeuralNetworkModel(BaseModel):
         # Initialize the actual PyTorch model
         self.model = NNModule(self.input_size, self.hidden_layers, self.activation_fn)
         self.criterion = nn.BCEWithLogitsLoss()
-        # Initialize Optimizer with kwargs (like momentum=0.9)
+        
+        # Now kwargs only contains optimizer-specific arguments like momentum
         self.optimizer = self.optimizer_class(self.model.parameters(), lr=self.lr, **kwargs)
 
-    def train(self, X_train, y_train, epochs=200):
-        print(f"[{self.model_name}] Training PyTorch Network (Layers: {self.hidden_layers}) for {epochs} epochs...")
+    def train(self, X_train, y_train, epochs=None):
+        num_epochs = epochs if epochs is not None else self.epochs
+        print(f"[{self.model_name}] Training PyTorch Network (Layers: {self.hidden_layers}) for {num_epochs} epochs...")
         
         # Convert to Tensors
         X = torch.FloatTensor(X_train)
         y = torch.FloatTensor(y_train).view(-1, 1)
         
         self.model.train()
-        for epoch in range(epochs):
+        for epoch in range(num_epochs):
             self.optimizer.zero_grad()
             outputs = self.model(X)
             loss = self.criterion(outputs, y)
@@ -64,7 +69,7 @@ class NeuralNetworkModel(BaseModel):
             self.optimizer.step()
             
             if (epoch + 1) % 50 == 0:
-                print(f"   Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}")
+                print(f"   Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
 
     def predict(self, X):
         self.model.eval()
