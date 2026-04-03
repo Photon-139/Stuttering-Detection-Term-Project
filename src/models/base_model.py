@@ -48,6 +48,12 @@ class BaseModel(ABC):
             if k != "confusion_matrix":
                 print(f"{k.capitalize()}: {v:.4f}")
         
+        cm = metrics["confusion_matrix"]
+        print("\nConfusion Matrix (Binary):")
+        print(f"               Predicted: Fluent(0)  Predicted: Stutter(1)")
+        print(f"True: Fluent(0)      {cm[0,0]:<15} {cm[0,1]:<15}")
+        print(f"True: Stutter(1)     {cm[1,0]:<15} {cm[1,1]:<15}")
+        
         return metrics
 
     @abstractmethod

@@ -2,7 +2,14 @@ import os
 import numpy as np
 from src.extractors import WavLMExtractor
 from src.data import DataManager
-from src.models import LogisticModel
+import torch.nn as nn
+import torch.optim as optim
+from src.models import (
+    LogisticModel, PerceptronModel, NaiveBayesModel, 
+    KNNModel, ShallowNeuralNetwork, DeepNeuralNetwork,
+    LinearSVMModel, KernelSVMModel, LDAModel,
+    DecisionTreeModel, RandomForestModel
+)
 
 # --- CONFIGURATION (The Experiment Settings) ---
 AUDIO_DIR = "Stuttering Events in Podcasts Dataset/clips/stuttering-clips/clips"
@@ -16,7 +23,7 @@ RANDOM_SEED = 42
 
 # --- CONTROL FLAGS ---
 # 1. CLEAN_START: Set to True to DELETE all existing features on disk before running.
-CLEAN_START = True 
+CLEAN_START = False 
 
 # 2. FORCE_EXTRACT: Set to True to re-extract features even if folders already exist.
 FORCE_EXTRACT = False
@@ -24,10 +31,36 @@ FORCE_EXTRACT = False
 # 3. EXTRACT_LIMIT: Set to an integer (e.g., 500) for a quick test run. 
 # Set to None for the full 28k dataset.
 EXTRACT_LIMIT = 1000
+
+# 4. MODELS TO RUN: Add/Remove models here for head-to-head comparison
+MODELS_TO_RUN = [
+    LogisticModel("LogReg_Baseline"),
+    NaiveBayesModel("NaiveBayes_Baseline"),
+    # KNNModel("KNN_Baseline", n_neighbors=5),
+    
+    # Lab-Inspired Neural Networks (PyTorch)
+    ShallowNeuralNetwork("Shallow_NN", hidden_layer_size=64, 
+                          momentum=0.9, activation_fn=nn.Tanh),
+    
+    DeepNeuralNetwork("Deep_NN", hidden_layer_sizes=[128, 64], 
+                        momentum=0.9, activation_fn=nn.Tanh),
+
+    # SVMs
+    LinearSVMModel("Linear_SVM"),
+    KernelSVMModel("RBF_SVM", kernel_type='rbf'),
+
+    # LDA (General Bayes)
+    LDAModel("LDA_Bayes_Final"),
+
+    # Tree-Based Models
+    DecisionTreeModel("Decision_Tree_Default", max_depth=10),
+    RandomForestModel("Random_Forest_100", n_estimators=100)
+]
 # ---------------------
 
 def main():
     import shutil
+    import json
     print("--- [STUTTERING DETECTION: MAIN PIPELINE] ---")
 
     # 1. CLEAN SLATE LOGIC
@@ -77,20 +110,19 @@ def main():
     # 4. PREPARATION (Split -> Balance -> Scale)
     print(f"\n[4/4] Preparing Final Datasets...")
     
-    # Stratified Split (70% Train, 15% Val, 15% Test)
+    # Stratified Split
     X_train, X_val, X_test, y_train, y_val, y_test = manager.get_splits(
         test_size=0.15, val_size=0.15
     )
     
-    # Balance (Oversample the minority class in the training set ONLY)
+    # Balance
     X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
     
-    # Standardize (StandardScaler - based on training data only)
+    # Standardize
     X_train_final = manager.preprocess(X_train_bal, method="standard")
     X_val_final = manager.preprocess(X_val, method="standard")
     X_test_final = manager.preprocess(X_test, method="standard")
 
-    # --- READY FOR MODELING ---
     print(f"\n--- [PIPELINE COMPLETE: DATA READY] ---")
     print(f"X_train (Balanced/Scaled): {X_train_final.shape}, y_train: {y_train_bal.shape}")
     print(f"X_val (Scaled):            {X_val_final.shape}, y_val: {y_val.shape}")
@@ -98,20 +130,33 @@ def main():
     print(f"Targeting: {MODEL_ID} Embeddings (768 features)")
     print("----------------------------------------\n")
 
-    # 5. MODEL TRAINING & EVALUATION
-    print(f"\n[5/5] Training Logistic Regression Model...")
-    model = LogisticModel("LogReg_Experiment_1")
-    model.train(X_train_final, y_train_bal)
+    # 5. MODEL COMPETITION
+    all_results = {}
+
+    for model in MODELS_TO_RUN:
+        print(f"\n--- [TRAINING: {model.model_name}] ---")
+        model.train(X_train_final, y_train_bal)
+        
+        print(f"\n--- [VALIDATION: {model.model_name}] ---")
+        val_m = model.evaluate(X_val_final, y_val)
+        
+        print(f"\n--- [TEST SET: {model.model_name}] ---")
+        test_m = model.evaluate(X_test_final, y_test)
+
+        # Log results for export (convert numpy arrays to lists for JSON)
+        all_results[model.model_name] = {
+            "validation": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in val_m.items()},
+            "test": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in test_m.items()}
+        }
     
-    # Evaluate on Validation Set
-    print("\n--- VALIDATION RESULTS ---")
-    model.evaluate(X_val_final, y_val)
+    # Save to JSON
+    results_path = os.path.join("data", "results.json")
+    os.makedirs("data", exist_ok=True)
+    with open(results_path, "w") as f:
+        json.dump(all_results, f, indent=4)
+    print(f"\n[SUCCESS] Final metrics saved to {results_path}")
     
-    # Final Evaluate on Test Set
-    print("\n--- FINAL TEST RESULTS ---")
-    model.evaluate(X_test_final, y_test)
-    
-    print("\n--- [ALL STEPS COMPLETED SUCCESSFULLY] ---")
-    
+    print("\n--- [ALL EXPERIMENTS COMPLETED SUCCESSFULLY] ---")
+
 if __name__ == "__main__":
     main()
