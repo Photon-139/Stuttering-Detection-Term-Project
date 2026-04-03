@@ -87,20 +87,30 @@ class BaseExtractor(ABC):
             
         return np.array(X) if X else None
 
-    def extract_from_dir(self, directory_path, output_dir=None, label_dict=None, limit=None, log_path=None):
+    def extract_from_dir(self, directory_path, output_dir=None, label_dict=None, 
+                         limit=None, log_path=None, random_sample=False, seed=42):
         """
         Scans a folder and extracts features for all audio files.
         'output_dir': Directory where individual .npy files will be saved.
         'label_dict': Dictionary {filename: label} for sorting.
+        'random_sample': If True, picks 'limit' files randomly instead of sequentially.
         """
         all_files = [
             os.path.join(directory_path, f) 
-            for f in sorted(os.listdir(directory_path)) 
+            for f in os.listdir(directory_path) 
             if f.lower().endswith(('.wav', '.mp3'))
         ]
         
         if limit and limit > 0:
-            print(f"[{self.__class__.__name__}] Limiting to the first {limit} audio files.")
+            if random_sample:
+                import random
+                random.seed(seed)
+                random.shuffle(all_files)
+                print(f"[{self.__class__.__name__}] Randomly sampling {limit} audio files from across the entire dataset...")
+            else:
+                all_files = sorted(all_files)
+                print(f"[{self.__class__.__name__}] Limiting to the first {limit} audio files.")
+            
             all_files = all_files[:limit]
             
         return self.extract_batch(all_files, output_dir=output_dir, label_dict=label_dict, log_path=log_path)
