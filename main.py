@@ -86,17 +86,15 @@ def main():
         print(f"\n[2/4] Triggering WavLM Extraction...")
         extractor = WavLMExtractor(MODEL_ID)
         
-        # Shuffle/Pick top files to process
-        all_files = [os.path.join(AUDIO_DIR, f) for f in os.listdir(AUDIO_DIR) if f.lower().endswith('.wav')]
-        import random
-        random.seed(RANDOM_SEED)
-        random.shuffle(all_files)
-        
-        if EXTRACT_LIMIT:
-            print(f"Limiting to first {EXTRACT_LIMIT} clips for this run.")
-            all_files = all_files[:EXTRACT_LIMIT]
-            
-        extractor.extract_batch(all_files, output_dir=FEATURE_DIR, label_dict=label_dict)
+        # Now using NATIVE Random Sampling logic for diversity
+        extractor.extract_from_dir(
+            AUDIO_DIR, 
+            output_dir=FEATURE_DIR, 
+            label_dict=label_dict, 
+            limit=EXTRACT_LIMIT, 
+            random_sample=True,
+            seed=RANDOM_SEED
+        )
     else:
         print(f"\n[2/4] Existing features found in {FEATURE_DIR}. Skipping extraction.")
 
@@ -118,10 +116,13 @@ def main():
     # Balance
     X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
     
-    # Standardize
-    X_train_final = manager.preprocess(X_train_bal, method="standard")
-    X_val_final = manager.preprocess(X_val, method="standard")
-    X_test_final = manager.preprocess(X_test, method="standard")
+    # Anti-Leakage Standard Selection
+    # 1. Fit scaler ONLY on training data
+    X_train_final = manager.preprocess(X_train_bal, method="standard", fit=True)
+    
+    # 2. Re-use training statistics for validation and test (Scientific Purity)
+    X_val_final = manager.preprocess(X_val, method="standard", fit=False)
+    X_test_final = manager.preprocess(X_test, method="standard", fit=False)
 
     print(f"\n--- [PIPELINE COMPLETE: DATA READY] ---")
     print(f"X_train (Balanced/Scaled): {X_train_final.shape}, y_train: {y_train_bal.shape}")

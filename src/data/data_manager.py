@@ -9,13 +9,15 @@ class DataManager:
     Handles preprocessing, class imbalance, and data splitting.
     Follows project requirements (Steps 3.2 and 3.3).
     """
-    def __init__(self, X, y):
+    def __init__(self, X=None, y=None):
         self.X = X
         self.y = y
+        self.scaler = None # Scientific State: Avoids Data Leakage
 
     def analyze_distribution(self, y_subset=None):
         """Specifically fulfils Step 3.3 'Analyze the distribution'"""
         target = y_subset if y_subset is not None else self.y
+        if target is None: return
         fluent_count = np.sum(target == 0)
         disfluent_count = np.sum(target == 1)
         total = len(target)
@@ -24,18 +26,26 @@ class DataManager:
         print(f"Disfluent (1): {disfluent_count} ({disfluent_count/total:.1%})")
         print(f"Total: {total}")
 
-    def preprocess(self, X_input, method="standard"):
-        """FLEXIBLE scaling for Step 3.2 Data Preparation."""
-        if method == "standard":
-            scaler = StandardScaler()
-        elif method == "minmax":
-            scaler = MinMaxScaler()
-        elif method == "l2":
-            scaler = Normalizer(norm='l2')
+    def preprocess(self, X_input, method="standard", fit=True):
+        """
+        FLEXIBLE scaling for Step 3.2 Data Preparation. 
+        State-Aware: 'fit=True' learns statistics from training data. 
+        'fit=False' transforms test data using those exact same statistics (No Leakage).
+        """
+        if fit or self.scaler is None:
+            if method == "standard":
+                self.scaler = StandardScaler()
+            elif method == "minmax":
+                self.scaler = MinMaxScaler()
+            elif method == "l2":
+                self.scaler = Normalizer(norm='l2')
+            else:
+                raise ValueError("Unknown method. Use 'standard', 'minmax', or 'l2'.")
+            
+            return self.scaler.fit_transform(X_input)
         else:
-            raise ValueError("Unknown method. Use 'standard', 'minmax', or 'l2'.")
-        
-        return scaler.fit_transform(X_input)
+            # Re-uses statistics from the training set for valid scientific testing
+            return self.scaler.transform(X_input)
 
     def balance_data(self, X_train, y_train, strategy="oversample"):
         """
