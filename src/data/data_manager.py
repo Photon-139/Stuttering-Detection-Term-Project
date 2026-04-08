@@ -3,6 +3,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, Normalizer
 from sklearn.utils import resample
+from sklearn.decomposition import PCA
 
 class DataManager:
     """
@@ -13,6 +14,7 @@ class DataManager:
         self.X = X
         self.y = y
         self.scaler = None # Scientific State: Avoids Data Leakage
+        self.pca_model = None
 
     def analyze_distribution(self, y_subset=None):
         """Specifically fulfils Step 3.3 'Analyze the distribution'"""
@@ -46,6 +48,20 @@ class DataManager:
         else:
             # Re-uses statistics from the training set for valid scientific testing
             return self.scaler.transform(X_input)
+
+    def reduce_dimensions(self, X_input, n_components=0.95, fit=True):
+        """
+        Step 3.2 Enhancement (Optional): PCA Dimensionality Reduction.
+        Keeps 'n_components' of the variance (e.g., 0.95).
+        Fits ONLY on training data to prevent leakage.
+        """
+        if fit or self.pca_model is None:
+            self.pca_model = PCA(n_components=n_components, random_state=42)
+            X_reduced = self.pca_model.fit_transform(X_input)
+            print(f"[DataManager] PCA: Reduced features to {self.pca_model.n_components_} components (Variance={n_components})")
+            return X_reduced
+        else:
+            return self.pca_model.transform(X_input)
 
     def balance_data(self, X_train, y_train, strategy="oversample"):
         """

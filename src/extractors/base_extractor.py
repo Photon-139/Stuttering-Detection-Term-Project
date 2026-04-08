@@ -56,34 +56,52 @@ class BaseExtractor(ABC):
                     })
             print(f"[{self.__class__.__name__}] Found {len(existing_filenames)} pre-existing features. Skipping redundant work.")
 
+        stats = {"fluent": 0, "disfluent": 0, "noisy": 0, "existing": len(existing_filenames)}
+        
         for path in tqdm(audio_paths, desc="Batch Extraction"):
             filename = os.path.splitext(os.path.basename(path))[0]
             
-            # 0. Optimized Resumable Check: O(1) Memory Lookup
+            # 0. Optimized Resumable Check
             if filename in existing_filenames:
                 continue
             
+            # 1. Validation & Quality Check
+            if label_dict:
+                if filename not in label_dict:
+                    stats["noisy"] += 1
+                    continue
+            
+            # 2. Actual Extraction
             emb = self.extract_one(path)
             if emb is not None:
-                # 1. Save individually if output_dir is set
                 if output_dir:
                     subfolder = ""
+                    label = 0
                     if label_dict:
-                        label = label_dict.get(filename, 0)
+                        label = label_dict[filename]
                         subfolder = "disfluent" if label == 1 else "fluent"
                     
+                    if label == 0: stats["fluent"] += 1
+                    else: stats["disfluent"] += 1
+
                     target_path = os.path.join(output_dir, subfolder, f"{filename}.npy")
                     np.save(target_path, emb)
-                    existing_filenames.add(filename) # Keep cache updated
+                    existing_filenames.add(filename)
                 else:
-                    X.append(emb) # Keep in memory for smaller batches
+                    X.append(emb)
             else:
                 failed_paths.append(path)
             
-        if log_path and failed_paths:
-            with open(log_path, "w") as f:
-                f.write("\n".join(failed_paths))
-            print(f"[{self.__class__.__name__}] Logged {len(failed_paths)} failed files to {log_path}")
+        print(f"\n[{self.__class__.__name__}] Extraction Summary:")
+        print(f" - New Fluent: {stats['fluent']}")
+        print(f" - New Disfluent: {stats['disfluent']}")
+        print(f" - Skipped (Noise/No-Meta): {stats['noisy']}")
+        print(f" - Skipped (On Disk): {stats['existing']}")
+        if failed_paths:
+            print(f" - Failed Extractions: {len(failed_paths)}")
+            if log_path:
+                with open(log_path, "w") as f:
+                    f.write("\n".join(failed_paths))
             
         return np.array(X) if X else None
 

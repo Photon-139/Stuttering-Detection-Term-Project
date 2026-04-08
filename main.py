@@ -30,31 +30,35 @@ FORCE_EXTRACT = False
 
 # 3. EXTRACT_LIMIT: Set to an integer (e.g., 500) for a quick test run. 
 # Set to None for the full 28k dataset.
-EXTRACT_LIMIT = 1000
+EXTRACT_LIMIT = None
+
+# 4. USE_PCA: Set to True to denoise features (keeps 95% variance).
+USE_PCA = True
 
 # 4. MODELS TO RUN: Add/Remove models here for head-to-head comparison
 MODELS_TO_RUN = [
     LogisticModel("LogReg_Baseline"),
-    NaiveBayesModel("NaiveBayes_Baseline"),
+    PerceptronModel("Perceptron_Baseline")
+    #NaiveBayesModel("NaiveBayes_Baseline"),
     # KNNModel("KNN_Baseline", n_neighbors=5),
     
     # Lab-Inspired Neural Networks (PyTorch)
-    ShallowNeuralNetwork("Shallow_NN", hidden_layer_size=64, 
-                          momentum=0.9, activation_fn=nn.Tanh),
+    #ShallowNeuralNetwork("Shallow_NN", hidden_layer_size=64, 
+     #                     momentum=0.9, activation_fn=nn.Tanh),
     
-    DeepNeuralNetwork("Deep_NN", hidden_layer_sizes=[128, 64], 
-                        momentum=0.9, activation_fn=nn.Tanh),
+    #DeepNeuralNetwork("Deep_NN", hidden_layer_sizes=[128, 64], 
+     #                   momentum=0.9, activation_fn=nn.Tanh),
 
     # SVMs
-    LinearSVMModel("Linear_SVM"),
-    KernelSVMModel("RBF_SVM", kernel_type='rbf'),
+    # LinearSVMModel("Linear_SVM"),
+    # KernelSVMModel("RBF_SVM", kernel_type='rbf'),
 
     # LDA (General Bayes)
-    LDAModel("LDA_Bayes_Final"),
+    # LDAModel("LDA_Bayes_Final"),
 
     # Tree-Based Models
-    DecisionTreeModel("Decision_Tree_Default", max_depth=10),
-    RandomForestModel("Random_Forest_100", n_estimators=100)
+    # DecisionTreeModel("Decision_Tree_Default", max_depth=10),
+    # RandomForestModel("Random_Forest_100", n_estimators=100)
 ]
 # ---------------------
 
@@ -102,6 +106,14 @@ def main():
     print(f"\n[3/4] Loading distributed data into Training Matrices...")
     manager = DataManager(None, None)
     X, y = manager.load_from_folders(fluent_dir, disfluent_dir)
+    
+    # NEW: Subset for Speed if limit is defined (handles existing disk features)
+    if EXTRACT_LIMIT is not None and len(X) > EXTRACT_LIMIT:
+        print(f"[System] Subsetting from {len(X)} down to {EXTRACT_LIMIT} for speed...")
+        indices = np.random.permutation(len(X))
+        X = X[indices][:EXTRACT_LIMIT]
+        y = y[indices][:EXTRACT_LIMIT]
+
     print(f"Loaded total of {len(X)} samples.")
     manager.analyze_distribution()
 
@@ -116,19 +128,24 @@ def main():
     # Balance
     X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
     
-    # Anti-Leakage Standard Selection
+    # Anti-Leakage Standard Selection (Scale -> Optional PCA)
     # 1. Fit scaler ONLY on training data
     X_train_final = manager.preprocess(X_train_bal, method="standard", fit=True)
-    
-    # 2. Re-use training statistics for validation and test (Scientific Purity)
     X_val_final = manager.preprocess(X_val, method="standard", fit=False)
     X_test_final = manager.preprocess(X_test, method="standard", fit=False)
 
+    # 2. PCA: Noise Reduction (Keep 95% Variance)
+    if USE_PCA:
+        print("[System] PCA enabled. Finding informative components (95% variance)...")
+        X_train_final = manager.reduce_dimensions(X_train_final, n_components=0.95, fit=True)
+        X_val_final = manager.reduce_dimensions(X_val_final, fit=False)
+        X_test_final = manager.reduce_dimensions(X_test_final, fit=False)
+
     print(f"\n--- [PIPELINE COMPLETE: DATA READY] ---")
-    print(f"X_train (Balanced/Scaled): {X_train_final.shape}, y_train: {y_train_bal.shape}")
-    print(f"X_val (Scaled):            {X_val_final.shape}, y_val: {y_val.shape}")
-    print(f"X_test (Scaled):           {X_test_final.shape}, y_test: {y_test.shape}")
-    print(f"Targeting: {MODEL_ID} Embeddings (768 features)")
+    print(f"X_train (Balanced/Final): {X_train_final.shape}, y_train: {y_train_bal.shape}")
+    print(f"X_val (Final):            {X_val_final.shape}, y_val: {y_val.shape}")
+    print(f"X_test (Final):           {X_test_final.shape}, y_test: {y_test.shape}")
+    print(f"Targeting: {MODEL_ID} Embeddings (Reduced for speed: {USE_PCA})")
     print("----------------------------------------\n")
 
     # 5. MODEL COMPETITION
