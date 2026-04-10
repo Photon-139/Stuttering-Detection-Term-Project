@@ -1,180 +1,123 @@
 import os
+import json
 import numpy as np
+import pandas as pd
 from src.extractors import WavLMExtractor
 from src.data import DataManager
-import torch.nn as nn
-import torch.optim as optim
 from src.models import (
-    LogisticModel, PerceptronModel, NaiveBayesModel, 
-    KNNModel, ShallowNeuralNetwork, DeepNeuralNetwork,
-    LinearSVMModel, KernelSVMModel, LDAModel,
-    DecisionTreeModel, RandomForestModel
+    LogisticModel, 
+    PerceptronModel, 
+    LinearSVMModel, 
+    KernelSVMModel,
+    ShallowNeuralNetwork,
+    DeepNeuralNetwork,
+    RandomForestModel
 )
 
-# --- CONFIGURATION (The Experiment Settings) ---
-AUDIO_DIR = "Stuttering Events in Podcasts Dataset/clips/stuttering-clips/clips"
-CSV_PATHS = [
-    "Stuttering Events in Podcasts Dataset/SEP-28k_labels.csv",
-    "Stuttering Events in Podcasts Dataset/fluencybank_labels.csv"
-]
-FEATURE_DIR = "data/features"  # Where individual .npy files live
-MODEL_ID = "microsoft/wavlm-base"
-RANDOM_SEED = 42
-
-# --- CONTROL FLAGS ---
-# 1. CLEAN_START: Set to True to DELETE all existing features on disk before running.
-CLEAN_START = False 
-
-# 2. FORCE_EXTRACT: Set to True to re-extract features even if folders already exist.
-FORCE_EXTRACT = False
-
-# 3. EXTRACT_LIMIT: Set to an integer (e.g., 500) for a quick test run. 
-# Set to None for the full 28k dataset.
-EXTRACT_LIMIT = None
-
-# 4. USE_PCA: Set to True to denoise features (keeps 95% variance).
-USE_PCA = True
-
-# 4. MODELS TO RUN: Add/Remove models here for head-to-head comparison
-MODELS_TO_RUN = [
-    LogisticModel("LogReg_Baseline"),
-    PerceptronModel("Perceptron_Baseline")
-    #NaiveBayesModel("NaiveBayes_Baseline"),
-    # KNNModel("KNN_Baseline", n_neighbors=5),
-    
-    # Lab-Inspired Neural Networks (PyTorch)
-    #ShallowNeuralNetwork("Shallow_NN", hidden_layer_size=64, 
-     #                     momentum=0.9, activation_fn=nn.Tanh),
-    
-    #DeepNeuralNetwork("Deep_NN", hidden_layer_sizes=[128, 64], 
-     #                   momentum=0.9, activation_fn=nn.Tanh),
-
-    # SVMs
-    # LinearSVMModel("Linear_SVM"),
-    # KernelSVMModel("RBF_SVM", kernel_type='rbf'),
-
-    # LDA (General Bayes)
-    # LDAModel("LDA_Bayes_Final"),
-
-    # Tree-Based Models
-    # DecisionTreeModel("Decision_Tree_Default", max_depth=10),
-    # RandomForestModel("Random_Forest_100", n_estimators=100)
-]
-# ---------------------
+def load_best_params():
+    """Helper to load tuned parameters if they exist"""
+    config_path = "config/best_linear_params.json"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return json.load(f)
+    return {}
 
 def main():
-    import shutil
-    import json
-    print("--- [STUTTERING DETECTION: MAIN PIPELINE] ---")
-
-    # 1. CLEAN SLATE LOGIC
-    if CLEAN_START and os.path.exists(FEATURE_DIR):
-        print(f"\n[CLEAN START]: Deleting existing features in {FEATURE_DIR}...")
-        shutil.rmtree(FEATURE_DIR)
-
-    # 2. INITIALIZE MASTER LABEL LOOKUP
-    print(f"\n[1/4] Loading Master Label Switchboard...")
+    # 1. Pipeline Configuration
+    EXTRACT_LIMIT = 14000
+    USE_PCA = True
+    RANDOM_SEED = 42
+    
+    # Path Configuration
+    AUDIO_DIR = "Stuttering Events in Podcasts Dataset/clips/stuttering-clips/clips"
+    CSV_PATHS = [
+        "Stuttering Events in Podcasts Dataset/SEP-28k_labels.csv",
+        "Stuttering Events in Podcasts Dataset/fluencybank_labels.csv"
+    ]
+    FEATURE_DIR = "data/features"
+    
+    # 2. Extract Features (If needed)
+    print("--- [STEP 1: Feature Extraction] ---")
+    extractor = WavLMExtractor("microsoft/wavlm-base")
     label_dict = DataManager.generate_label_dict(CSV_PATHS, filter_quality=True)
     
-    # 3. FEATURE EXTRACTION (RESUMABLE)
-    fluent_dir = os.path.join(FEATURE_DIR, "fluent")
-    disfluent_dir = os.path.join(FEATURE_DIR, "disfluent")
-    
-    # Extraction Trigger
-    needs_extraction = FORCE_EXTRACT or \
-                       not os.path.exists(fluent_dir) or \
-                       not os.path.exists(disfluent_dir) or \
-                       (len(os.listdir(fluent_dir)) == 0 and len(os.listdir(disfluent_dir)) == 0)
+    extractor.extract_from_dir(
+        AUDIO_DIR, 
+        output_dir=FEATURE_DIR, 
+        label_dict=label_dict, 
+        limit=EXTRACT_LIMIT, 
+        random_sample=True
+    )
 
-    if needs_extraction:
-        print(f"\n[2/4] Triggering WavLM Extraction...")
-        extractor = WavLMExtractor(MODEL_ID)
-        
-        # Now using NATIVE Random Sampling logic for diversity
-        extractor.extract_from_dir(
-            AUDIO_DIR, 
-            output_dir=FEATURE_DIR, 
-            label_dict=label_dict, 
-            limit=EXTRACT_LIMIT, 
-            random_sample=True,
-            seed=RANDOM_SEED
-        )
-    else:
-        print(f"\n[2/4] Existing features found in {FEATURE_DIR}. Skipping extraction.")
-
-    # 3. CONSOLIDATED LOADING
-    print(f"\n[3/4] Loading distributed data into Training Matrices...")
+    # 3. Load and Prepare Data
+    print("\n--- [STEP 2: Data Loading & Preprocessing] ---")
     manager = DataManager(None, None)
-    X, y = manager.load_from_folders(fluent_dir, disfluent_dir)
-    
-    # NEW: Subset for Speed if limit is defined (handles existing disk features)
-    if EXTRACT_LIMIT is not None and len(X) > EXTRACT_LIMIT:
-        print(f"[System] Subsetting from {len(X)} down to {EXTRACT_LIMIT} for speed...")
-        indices = np.random.permutation(len(X))
-        X = X[indices][:EXTRACT_LIMIT]
-        y = y[indices][:EXTRACT_LIMIT]
-
-    print(f"Loaded total of {len(X)} samples.")
-    manager.analyze_distribution()
-
-    # 4. PREPARATION (Split -> Balance -> Scale)
-    print(f"\n[4/4] Preparing Final Datasets...")
-    
-    # Stratified Split
-    X_train, X_val, X_test, y_train, y_val, y_test = manager.get_splits(
-        test_size=0.15, val_size=0.15
+    X, y = manager.load_from_folders(
+        os.path.join(FEATURE_DIR, "fluent"),
+        os.path.join(FEATURE_DIR, "disfluent")
     )
     
-    # Balance
+    X_train, X_val, X_test, y_train, y_val, y_test = manager.get_splits()
     X_train_bal, y_train_bal = manager.balance_data(X_train, y_train, strategy="oversample")
     
-    # Anti-Leakage Standard Selection (Scale -> Optional PCA)
-    # 1. Fit scaler ONLY on training data
+    # Preprocessing Chain
     X_train_final = manager.preprocess(X_train_bal, method="standard", fit=True)
-    X_val_final = manager.preprocess(X_val, method="standard", fit=False)
-    X_test_final = manager.preprocess(X_test, method="standard", fit=False)
-
-    # 2. PCA: Noise Reduction (Keep 95% Variance)
+    X_val_final = manager.preprocess(X_val, fit=False)
+    X_test_final = manager.preprocess(X_test, fit=False)
+    
+    # Optional PCA Denoising
     if USE_PCA:
-        print("[System] PCA enabled. Finding informative components (95% variance)...")
-        X_train_final = manager.reduce_dimensions(X_train_final, n_components=0.95, fit=True)
-        X_val_final = manager.reduce_dimensions(X_val_final, fit=False)
-        X_test_final = manager.reduce_dimensions(X_test_final, fit=False)
+        print("[PCA] Reducing dimensionality for feature denoising...")
+        from sklearn.decomposition import PCA
+        pca = PCA(n_components=0.95, random_state=RANDOM_SEED)
+        X_train_final = pca.fit_transform(X_train_final)
+        X_val_final = pca.transform(X_val_final)
+        X_test_final = pca.transform(X_test_final)
+        print(f"[PCA] New Feature Dimension: {X_train_final.shape[1]}")
 
-    print(f"\n--- [PIPELINE COMPLETE: DATA READY] ---")
-    print(f"X_train (Balanced/Final): {X_train_final.shape}, y_train: {y_train_bal.shape}")
-    print(f"X_val (Final):            {X_val_final.shape}, y_val: {y_val.shape}")
-    print(f"X_test (Final):           {X_test_final.shape}, y_test: {y_test.shape}")
-    print(f"Targeting: {MODEL_ID} Embeddings (Reduced for speed: {USE_PCA})")
-    print("----------------------------------------\n")
+    # 4. Model Selection & Configuration
+    print("\n--- [STEP 3: Model Competition] ---")
+    best_params = load_best_params()
+    
+    # Extract specific tuned params (or empty dict if not found)
+    log_cfg = best_params.get("logistic_regression", {})
+    perc_cfg = best_params.get("perceptron", {})
+    
+    models = [
+        # 1. Linear Baselines
+        LogisticModel("Logistic_Regression", **log_cfg),
+        PerceptronModel("Perceptron", **perc_cfg),
+        
+        # 2. Kernel Support Vector Machines
+        LinearSVMModel("SVM_Linear", C=1.0),
+        KernelSVMModel("SVM_RBF", kernel="rbf", C=10.0, gamma='scale'),
+        
+        # 3. Neural Architectures
+        ShallowNeuralNetwork("Shallow_NN", input_dim=X_train_final.shape[1]),
+        # DeepNeuralNetwork("Deep_NN", input_dim=X_train_final.shape[1]),
+        
+        # 4. Tree Ensembles
+        RandomForestModel("Random_Forest", n_estimators=100)
+    ]
 
-    # 5. MODEL COMPETITION
-    all_results = {}
-
-    for model in MODELS_TO_RUN:
-        print(f"\n--- [TRAINING: {model.model_name}] ---")
+    # 5. Training & Evaluation Benchmarking
+    results = []
+    for model in models:
         model.train(X_train_final, y_train_bal)
-        
-        print(f"\n--- [VALIDATION: {model.model_name}] ---")
-        val_m = model.evaluate(X_val_final, y_val)
-        
-        print(f"\n--- [TEST SET: {model.model_name}] ---")
-        test_m = model.evaluate(X_test_final, y_test)
+        metrics = model.evaluate(X_test_final, y_test)
+        results.append({
+            "model": model.model_name,
+            "accuracy": metrics['accuracy'],
+            "f1": metrics['f1']
+        })
 
-        # Log results for export (convert numpy arrays to lists for JSON)
-        all_results[model.model_name] = {
-            "validation": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in val_m.items()},
-            "test": {k: (v.tolist() if isinstance(v, np.ndarray) else v) for k, v in test_m.items()}
-        }
-    
-    # Save to JSON
-    results_path = os.path.join("data", "results.json")
-    os.makedirs("data", exist_ok=True)
-    with open(results_path, "w") as f:
-        json.dump(all_results, f, indent=4)
-    print(f"\n[SUCCESS] Final metrics saved to {results_path}")
-    
-    print("\n--- [ALL EXPERIMENTS COMPLETED SUCCESSFULLY] ---")
+    # 6. Scientific Summary Table
+    print("\n" + "="*40)
+    print(f"{'MODEL':<20} | {'ACCURACY':<10} | {'F1 SCORE':<10}")
+    print("-" * 40)
+    for res in results:
+        print(f"{res['model']:<20} | {res['accuracy']:<10.4f} | {res['f1']:<10.4f}")
+    print("="*40)
 
 if __name__ == "__main__":
     main()

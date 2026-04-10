@@ -9,8 +9,10 @@ class PerceptronModel(BaseModel):
     """
     def __init__(self, model_name="Perceptron_Default", **kwargs):
         super().__init__(model_name)
-        # Default to 1000 iterations for convergence on noisy features
-        self.model = Perceptron(max_iter=1000, random_state=42, **kwargs)
+        # Defaults for noisy features
+        params = {"max_iter": 1000, "random_state": 42}
+        params.update(kwargs)  # Allows tuning to override defaults
+        self.model = Perceptron(**params)
 
     def train(self, X_train, y_train):
         print(f"[{self.model_name}] Training on {len(X_train)} samples...")

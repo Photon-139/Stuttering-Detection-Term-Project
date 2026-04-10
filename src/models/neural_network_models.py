@@ -39,7 +39,8 @@ class NeuralNetworkModel(BaseModel):
         # Separate training settings from optimizer hyperparameters
         self.epochs = kwargs.pop('epochs', 200) # Default to 200
         
-        self.input_size = 768 # WavLM Embeddings size
+        # input_size is now detected or passed
+        self.input_size = kwargs.pop('input_size', 768) 
         self.hidden_layers = hidden_layers
         self.lr = lr
         self.activation_fn = activation_fn
@@ -56,9 +57,15 @@ class NeuralNetworkModel(BaseModel):
         num_epochs = epochs if epochs is not None else self.epochs
         print(f"[{self.model_name}] Training PyTorch Network (Layers: {self.hidden_layers}) for {num_epochs} epochs...")
         
-        # Convert to Tensors
         X = torch.FloatTensor(X_train)
         y = torch.FloatTensor(y_train).view(-1, 1)
+
+        # Dynamic Input Size Re-Check
+        if X.shape[1] != self.input_size:
+            print(f"[{self.model_name}] Re-initializing network for new input dimension: {X.shape[1]}")
+            self.input_size = X.shape[1]
+            self.model = NNModule(self.input_size, self.hidden_layers, self.activation_fn)
+            self.optimizer = self.optimizer_class(self.model.parameters(), lr=self.lr)
         
         self.model.train()
         for epoch in range(num_epochs):

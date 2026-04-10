@@ -1,0 +1,13 @@
+{
+    "logistic_regression": {
+        "C": 0.01,
+        "max_iter": 2000,
+        "solver": "lbfgs"
+    },
+    "perceptron": {
+        "alpha": 0.0001,
+        "eta0": 1.0,
+        "max_iter": 2000,
+        "penalty": null
+    }
+}

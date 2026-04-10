@@ -9,8 +9,10 @@ class LogisticModel(BaseModel):
     """
     def __init__(self, model_name="Logistic_Default", **kwargs):
         super().__init__(model_name)
-        # Default to a slightly stronger regularization for noisy audio data
-        self.model = LogisticRegression(max_iter=1000, random_state=42, **kwargs)
+        # Defaults for noisy audio data
+        params = {"max_iter": 1000, "random_state": 42}
+        params.update(kwargs)  # Allows tuning to override defaults
+        self.model = LogisticRegression(**params)
 
     def train(self, X_train, y_train):
         print(f"[{self.model_name}] Training on {len(X_train)} samples...")
