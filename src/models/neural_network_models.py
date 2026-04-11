@@ -34,7 +34,7 @@ class NeuralNetworkModel(BaseModel):
     Provides a consistent interface for the Stuttering Detection Pipeline.
     """
     def __init__(self, model_name="NN_Default", hidden_layers=[64], 
-                 lr=0.01, activation_fn=nn.ReLU, optimizer_class=optim.SGD, **kwargs):
+                 lr=0.01, activation_fn=nn.ReLU, optimizer_class=optim.Adam, **kwargs):
         super().__init__(model_name)
         # Separate training settings from optimizer hyperparameters
         self.epochs = kwargs.pop('epochs', 200) # Default to 200
@@ -53,7 +53,7 @@ class NeuralNetworkModel(BaseModel):
         # Now kwargs only contains optimizer-specific arguments like momentum
         self.optimizer = self.optimizer_class(self.model.parameters(), lr=self.lr, **kwargs)
 
-    def train(self, X_train, y_train, epochs=None):
+    def train(self, X_train, y_train, epochs=None, **kwargs):
         num_epochs = epochs if epochs is not None else self.epochs
         print(f"[{self.model_name}] Training PyTorch Network (Layers: {self.hidden_layers}) for {num_epochs} epochs...")
         
