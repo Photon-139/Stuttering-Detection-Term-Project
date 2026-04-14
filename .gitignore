@@ -13,3 +13,5 @@ __pycache__/
 /venv/
 .env
 *.wav
+"non_stutter/"
+*.flac
