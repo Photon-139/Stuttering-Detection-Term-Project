@@ -80,18 +80,30 @@ class DataManager:
             return X_train, y_train
 
         if strategy == "oversample":
-            # Duplicate minority class
-            dis_upsampled = resample(X_disfluent, replace=True, 
-                                     n_samples=len(X_fluent), random_state=42)
-            X_bal = np.vstack((X_fluent, dis_upsampled))
-            y_bal = np.hstack((np.zeros(len(X_fluent)), np.ones(len(X_fluent))))
+            # Duplicate minority class dynamically
+            if len(X_disfluent) < len(X_fluent):
+                dis_upsampled = resample(X_disfluent, replace=True, 
+                                         n_samples=len(X_fluent), random_state=42)
+                X_bal = np.vstack((X_fluent, dis_upsampled))
+                y_bal = np.hstack((np.zeros(len(X_fluent)), np.ones(len(X_fluent))))
+            else:
+                flu_upsampled = resample(X_fluent, replace=True, 
+                                         n_samples=len(X_disfluent), random_state=42)
+                X_bal = np.vstack((flu_upsampled, X_disfluent))
+                y_bal = np.hstack((np.zeros(len(X_disfluent)), np.ones(len(X_disfluent))))
             
         elif strategy == "undersample":
-            # Shrink majority class
-            flu_downsampled = resample(X_fluent, replace=False, 
-                                       n_samples=len(X_disfluent), random_state=42)
-            X_bal = np.vstack((flu_downsampled, X_disfluent))
-            y_bal = np.hstack((np.zeros(len(X_disfluent)), np.ones(len(X_disfluent))))
+            # Shrink majority class dynamically
+            if len(X_fluent) > len(X_disfluent):
+                flu_downsampled = resample(X_fluent, replace=False, 
+                                           n_samples=len(X_disfluent), random_state=42)
+                X_bal = np.vstack((flu_downsampled, X_disfluent))
+                y_bal = np.hstack((np.zeros(len(X_disfluent)), np.ones(len(X_disfluent))))
+            else:
+                dis_downsampled = resample(X_disfluent, replace=False, 
+                                           n_samples=len(X_fluent), random_state=42)
+                X_bal = np.vstack((X_fluent, dis_downsampled))
+                y_bal = np.hstack((np.zeros(len(X_fluent)), np.ones(len(X_fluent))))
         else:
             raise ValueError("Unknown strategy. Use 'oversample', 'undersample', or 'none'.")
             
